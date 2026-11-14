@@ -1,11 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FOMO Desk</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="FOMO Desk">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>FOMO Desk</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
-  <p>Desk app coming soon</p>
+<div id="app">
+  <div id="err" class="err hidden"></div>
+  <main id="view"></main>
+  <nav id="tabs" class="tabs">
+    <button data-tab="home" class="on"><span class="ti">◉</span>Home</button>
+    <button data-tab="bots"><span class="ti">◎</span>Bots</button>
+    <button data-tab="activity"><span class="ti">≡</span>Activity</button>
+    <button data-tab="account"><span class="ti">◍</span>Account</button>
+  </nav>
+</div>
+<div id="sheet" class="sheet hidden"><div class="sheet-card"><button class="sheet-x" aria-label="Close">✕</button><div id="sheet-body"></div></div></div>
+<script src="chart.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
