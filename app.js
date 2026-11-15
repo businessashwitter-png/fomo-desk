@@ -14,7 +14,15 @@
   const safeUrl = (u, host) => { try { const x = new URL(u); return x.protocol === "https:" && x.hostname === host ? x.href : null; } catch (e) { return null; } };
   const fomo = (u, label) => { const s = safeUrl(u, "fomo.family"); return s ? `<a class="fomo" href="${esc(s)}" target="_blank" rel="noopener noreferrer">${esc(label || "Open on FOMO")}</a>` : ""; };
   const tg = () => safeUrl((S.state && S.state.links && S.state.links.telegram) || "https://t.me/ashhmotion_desk_bot", "t.me");
-  const ts = s => s ? new Date(String(s).replace(" ", "T")).getTime() : NaN;   // desk times are box-local (ET)
+  // Desk timestamps are America/New_York local, no timezone suffix. Parse as local components
+  // (iOS Safari often treats a bare ISO string as UTC/invalid, which emptied the LIVE chart).
+  const ts = s => {
+    if (!s) return NaN;
+    const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime();
+    const n = Date.parse(String(s).replace(" ", "T"));
+    return isNaN(n) ? NaN : n;
+  };
   const usd = (v, d = 2) => v == null || isNaN(v) ? "—" : (v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
   const pct = v => v == null || isNaN(v) ? "—" : (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
   const hm = t => isNaN(t) ? "—" : new Date(t).toLocaleTimeString([], {hour: "numeric", minute: "2-digit"});
@@ -77,14 +85,35 @@
       ${st.multiplier ? `<span class="pill green">${st.multiplier.toFixed(2)}×</span>` : ""}<span class="t2">cash ${usd(st.cash)}</span></div>
     <canvas class="chart" id="chart"></canvas>
     <div class="ranges">${["LIVE", "1H", "4H", "1D", "1W", "ALL"].map(r => `<button data-range="${r}" class="${S.range === r ? "on" : ""}">${r}</button>`).join("")}</div>
-    <div class="screen"><div class="tl"><span class="dot"></span>Live screen: off in PAPER</div>
-      <div class="tr t2">Idle</div><div class="t3" style="font-size:14px;text-align:center;padding:0 24px">No browser in PAPER. Orders fill from live quotes.</div></div>
+    ${liveScreenPanel(st)}
     <div class="under">${lo ? `${lo.side === "buy" ? "Bought" : "Sold"} ${esc(lo.symbol)} · ${usd(lo.fill_usd ?? lo.usd)} · ${esc(lo.status)} · screen ${lo.screen_ok ? "✓" : "✗"} · api n/a · chain n/a` : "No orders yet"}</div>
     <div class="h"><b>Bots · ${running} running</b></div>
     <div class="carousel">${Object.keys(COLORS).map(botCard).join("")}</div>
     <div class="h"><b>Activity</b><button data-go="activity">See all</button></div>
     ${acts.length ? acts.map(actRow).join("") : `<div class="empty">Waiting for the first trade</div>`}
     ${open.length ? `<div class="h"><b>Open positions</b></div>` + open.map(p => `<div class="row" data-coin="${esc(p.mint)}"><div class="l"><div>${esc(p.symbol)}</div><div>${usd(p.size_usd)} in · stop ${(p.stop_price / p.entry_price * 100 - 100).toFixed(0)}%</div></div><div class="r">${usd(p.value_usd)}<br>${fomo(p.coin_url)}</div></div>`).join("") : ""}`;
+  }
+  function liveScreenPanel(st) {
+    const ls = st.live_screen, lo = st.last_order, live = st.mode === "LIVE";
+    let title, detail, body;
+    if (ls && typeof ls === "object") {
+      title = ls.title; detail = ls.detail; body = ls.body;
+    } else if (live && lo) {
+      const side = lo.side === "buy" ? "Bought" : "Sold";
+      const screen = lo.screen_ok ? "screen ✓" : (lo.screen_ok === 0 ? "screen ✗" : "screen n/a");
+      title = "Live screen: last order";
+      detail = `${side} ${lo.symbol || ""} · ${lo.status || ""}`;
+      body = [side + " " + (lo.symbol || ""), lo.fill_usd != null || lo.usd != null ? usd(lo.fill_usd ?? lo.usd) : "", lo.status || "", screen].filter(Boolean).join(" · ");
+    } else if (live) {
+      title = st.live_ready === false ? "Live screen: not ready" : "Live screen: ready";
+      detail = "Idle";
+      body = st.live_ready === false ? (st.live_ready_why || "Click lane is not ready.") : "Click lane is on. Waiting for the next LIVE order.";
+    } else {
+      title = "Live screen: off in PAPER"; detail = "Idle";
+      body = "No browser in PAPER. Orders fill from live quotes.";
+    }
+    return `<div class="screen"><div class="tl"><span class="dot"></span>${esc(title || "Live screen")}</div>
+      <div class="tr t2">${esc(detail || "Idle")}</div><div class="t3" style="font-size:14px;text-align:center;padding:0 24px">${esc(body || "")}</div></div>`;
   }
   function botCard(b) {
     const st = S.state, c = (st && st.counts) || {}, d = (S.bots && S.bots[b]) || [], [col, status] = botStatus(b);
@@ -129,6 +158,11 @@
   }
 
   // ---------- ACCOUNT ----------
+  function liveMethodNote(st) {
+    if (st.live_ready === true) return st.mode === "LIVE" ? "LIVE click method is on." : "The LIVE click method is ready. Switch from Telegram.";
+    if (st.live_ready === false) return "LIVE click method: " + (st.live_ready_why || "not ready");
+    return st.mode === "LIVE" ? "LIVE click method is on." : "PAPER mode.";
+  }
   function accountView() {
     const st = S.state; if (!st) return skeleton();
     const L = st.links || {}, prof = safeUrl(L.profile, "fomo.family"), sign = safeUrl(L.signup, "fomo.family");
@@ -136,8 +170,8 @@
     Object.entries(st.settings || {}).forEach(([k, v]) => { const [g, n] = k.split("."); (groups[g] = groups[g] || []).push([n, v]); });
     return `<div class="h"><b>Account</b>${paperPill()}</div>
     <div class="card"><div class="kv"><span>Mode</span><span>${esc(st.mode)}</span></div>
-      <div class="t3" style="font-size:13px;padding-top:8px">LIVE is locked: the LIVE click method isn't chosen yet.</div>
-      <div class="kv"><span>Paper cash</span><span>${usd(st.cash)}</span></div>
+      <div class="t3" style="font-size:13px;padding-top:8px">${esc(liveMethodNote(st))}</div>
+      <div class="kv"><span>${esc(st.cash_label || (st.mode === "LIVE" ? "Live cash" : "Paper cash"))}</span><span>${usd(st.cash)}</span></div>
       <div class="kv"><span>Balance</span><span>${usd(st.balance)}</span></div>
       ${prof ? `<a class="btn" href="${esc(prof)}" target="_blank" rel="noopener noreferrer">Your FOMO profile</a>` : ""}
       ${sign ? `<button class="btn" id="invite" data-url="${esc(sign)}">Invite a friend</button>` : ""}</div>
@@ -184,11 +218,24 @@
 
   // ---------- render ----------
   function chartPoints() {
-    const ch = S.chart || {points: []}, now = Date.now();
-    const span = {LIVE: 15 * 60e3, "1H": 36e5, "4H": 4 * 36e5, "1D": 864e5, "1W": 7 * 864e5, ALL: Infinity}[S.range];
-    const pts = ch.points.map(p => [ts(p[0]), p[1]]).filter(p => !isNaN(p[0]) && now - p[0] <= span);
-    const marks = (ch.marks || []).map(m => ({t: ts(m.ts), label: m.label, color: m.kind === "bought" ? "#0a84ff" : m.kind === "stopped" ? "#ff453a" : "#00d35a"}));
-    return {pts, marks, start: ch.start};
+    const ch = S.chart || {points: []}, st = S.state || {}, now = Date.now();
+    const sessionStart = ts((st.night && st.night.started_at) || ch.session_start);
+    const span = {LIVE: null, "1H": 36e5, "4H": 4 * 36e5, "1D": 864e5, "1W": 7 * 864e5, ALL: Infinity}[S.range];
+    const inRange = t => {
+      if (isNaN(t)) return false;
+      if (S.range === "ALL") return true;
+      if (S.range === "LIVE") return isNaN(sessionStart) ? (now - t <= 864e5) : (t >= sessionStart && t <= now + 1000);
+      return now - t <= span;
+    };
+    let pts = (ch.points || []).map(p => [ts(p[0]), p[1]]).filter(p => inRange(p[0]));
+    if (S.range === "LIVE" && !isNaN(sessionStart) && st.night_start_balance != null) {
+      if (!pts.length || pts[0][0] > sessionStart + 1000)
+        pts = [[sessionStart, st.night_start_balance], ...pts];
+    }
+    if (pts.length === 1 && st.balance != null) pts = [pts[0], [Math.max(now, pts[0][0]), st.balance]];
+    const marks = (ch.marks || []).map(m => ({t: ts(m.ts), label: m.label, color: m.kind === "bought" ? "#0a84ff" : m.kind === "stopped" ? "#ff453a" : "#00d35a"})).filter(m => inRange(m.t));
+    const start = S.range === "LIVE" && st.night_start_balance != null ? st.night_start_balance : ch.start;
+    return {pts, marks, start};
   }
   function render() {
     errRow();
@@ -198,7 +245,9 @@
     $("#view").innerHTML = v;
     document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === S.tab));
     if (S.tab === "home" && S.state) {
-      const c = chartPoints(); drawChart($("#chart"), c.pts, {start: c.start, marks: c.marks});
+      const c = chartPoints();
+      const hadTrades = c.marks.length || ((S.activity && S.activity.items) || []).some(a => a.kind === "bought" || a.kind === "sold" || a.kind === "stopped");
+      drawChart($("#chart"), c.pts, {start: c.start, marks: c.marks, empty: hadTrades ? "No chart points in this range" : "Waiting for the first trade"});
       if (active != null) { const q = $("#q"); q.value = active; q.focus(); search(active); }
     }
   }
