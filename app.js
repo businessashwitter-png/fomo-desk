@@ -55,8 +55,10 @@
   function botStatus(b) {
     const st = S.state; if (!st) return ["grey", "—"];
     if (st.paused && st.paused[b]) return ["#ff9f0a", "Paused"];
-    const t = ts((st.bots_hb || {})[b]); const age = (Date.now() - t) / 1000;
-    return age < 180 ? [COLORS[b], "Running"] : ["#ff453a", "Down"];
+    // age is measured on the desk at publish time; the copy is fine as long as the publish itself is fresh
+    const pub = Date.parse(st.published_at), fresh = !isNaN(pub) && Date.now() - pub < STALE_MIN * 60000;
+    const age = (st.bots_age_s || {})[b];
+    return fresh && age != null && age < 180 ? [COLORS[b], "Running"] : ["#ff453a", "Down"];
   }
   function paperPill() { return S.state && S.state.mode === "PAPER" ? `<span class="pill paper">PAPER</span>` : ""; }
 
